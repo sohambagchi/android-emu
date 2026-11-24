@@ -42,7 +42,7 @@ emu-down
 
 The scripts export `ANDROID_SERIAL=emulator-$EMU_PORT` internally, so every `adb` call they make
 targets their own emulator. Any `ANDROID_SERIAL` you set is overridden inside the scripts; use
-`EMU_PORT` to pick the instance. Your own `adb` calls are not pinned: the bare `adb ...` examples
+`EMU_PORT` to pick the serial. Your own `adb` calls are not pinned: the bare `adb ...` examples
 below assume `export ANDROID_SERIAL=emulator-5554` (see
 [Targeting the emulator](#targeting-the-emulator-when-other-devices-are-attached)).
 
@@ -115,14 +115,14 @@ NixOS gotchas:
 
 ### Targeting the emulator when other devices are attached
 
-`adb` without `-s` fails with `adb: more than one device/emulator` as soon as a USB phone or a
-second emulator is present (verified: a phone is plugged into this host). The `emu-*` scripts
+`adb` without `-s` fails with `adb: more than one device/emulator` as soon as a USB phone is also
+attached (verified: a phone is plugged into this host). The `emu-*` scripts
 are unaffected because they pin their own serial. For your own commands, set the serial once
 per shell:
 
 ```sh
 export ANDROID_SERIAL=emulator-5554   # default for every adb command in this shell
-adb -s emulator-5556 shell ...         # per-command override (-s beats ANDROID_SERIAL)
+adb -s <serial> shell ...              # per-command override (-s beats ANDROID_SERIAL)
 adb -e shell ...                       # -e picks the only emulator (verified)
 ```
 
@@ -253,50 +253,19 @@ the API 35 images including Play Store (per `repo.json`). Preview, TV and XR ima
 licenses and need `extraLicenses`. Google images and Play services are unfree and only licensed
 for development and testing, so don't redistribute them, e.g. from a public binary cache.
 
-### Running more than one AVD
+### How the scripts behave
 
-Budget: each AVD gets 3 GB of guest RAM plus emulator overhead, and has 4 vCPUs. With about 10 GB free,
-two instances are comfortable and three are tight. Lower per-instance RAM and cores with
-`-memory 2048 -cores 2`.
-
-Give each AVD its own name and its own even console port, and pass the same pair to every script:
-
-```sh
-EMU_NAME=emu-35-b EMU_PORT=5556 emu-up      # creates emu-35-b (API 35 google_apis, pixel_7) if missing
-EMU_NAME=emu-35-b EMU_PORT=5556 emu-shot
-EMU_NAME=emu-35-b EMU_PORT=5556 emu-down
-adb -s emulator-5556 emu avd name           # map serial -> AVD name (console command, read-only)
-```
-
-How the scripts handle this:
-
-- **emu-up** checks `adb get-state` on `emulator-$EMU_PORT`. If that serial is up and
-  `adb emu avd name` reports `$EMU_NAME`, it exits 0. If another AVD holds the port, it exits 1
-  and asks for a different even `EMU_PORT`. It doesn't search other ports, so starting the same
-  AVD on a second port runs into the emulator's single-instance lock (`multiinstance.lock` in the AVD directory) **(unverified)**; use `-read-only`, below.
-- **emu-up boot wait** polls `sys.boot_completed` for up to `EMU_BOOT_TIMEOUT` seconds (300 by default).
-  If the emulator process exits first, it fails at once and prints the last 20 log lines.
+- **emu-up** exits 0 at once if `emulator-$EMU_PORT` is already running `$EMU_NAME`. Otherwise it
+  polls `sys.boot_completed` for up to `EMU_BOOT_TIMEOUT` seconds (300 by default). If the
+  emulator process exits first, it fails at once and prints the last 20 log lines.
 - **emu-down** runs `adb emu kill` on its serial and waits up to 30 s. Then it sends SIGTERM via
   `pkill -f -- "-avd $EMU_NAME -port $EMU_PORT( |$)"`. That pattern only matches emulators
   started with `-avd` immediately followed by `-port` (as emu-up does), so for one you started
   by hand, pass a matching `EMU_NAME`/`EMU_PORT` or use `adb -s emulator-N emu kill`.
 - **emu-shot** captures from its serial and deletes the output file and exits 1 if capture
   fails or the file is empty (verified, including with a USB phone attached).
-
-Without the scripts (e.g. to pass extra flags), mirror their command line:
-
-```sh
-emulator -avd emu-35-b -port 5556 -no-window -no-audio -no-boot-anim -no-metrics -no-snapshot \
-  -gpu swiftshader_indirect > ~/.local/state/android-emu/emu-35-b.log 2>&1 &
-adb -s emulator-5556 wait-for-device
-until [ "$(adb -s emulator-5556 shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; do sleep 2; done
-adb -s emulator-5556 emu kill
-```
-
 - `-port N`: console port. N must be even and in 5554–5584; N+1 is the adb port and the serial is
   `emulator-N` (`-help-port`).
-- `-read-only`: run several instances of the *same* AVD (no snapshot saving).
-- `-ports <console>,<adb>` exists but the help warns adb may not see the instance.
 
 ## 2. Android kernel development
 
@@ -342,7 +311,7 @@ emulator -avd emu-35 -port 5554 -no-window -no-audio -no-boot-anim -no-metrics -
   -ramdisk ~/src/android-kernel/out/ramdisk-custom.img
 ```
 
-Option B is a dedicated AVD next to the stock one. Use it when you also change `config.ini`
+Option B is a dedicated AVD, separate from the stock one. Use it when you also change `config.ini`
 (e.g. `kernel.parameters`):
 
 ```sh
@@ -485,8 +454,7 @@ Caveats **(unverified on this host)**:
 ### What is practical on this host
 
 - **Works well:** headless boots under KVM, custom `bzImage` from the same GKI branch, module
-  loading on `google_apis` images, gdbstub with `hbreak`, `-show-kernel` console logs, two
-  concurrent AVDs.
+  loading on `google_apis` images, gdbstub with `hbreak` and `-show-kernel` console logs.
 - **No window by default:** emu-up passes `-no-window`. `emu-up --window` or dropping
   `-no-window` opens a Qt window on the Wayland session. Otherwise use screenshots,
   `screenrecord`, or `scrcpy` (not in the flake: `nix shell nixpkgs#scrcpy`).
@@ -510,8 +478,6 @@ Caveats **(unverified on this host)**:
 - Gradle/AGP builds, the `aapt2FromMavenOverride` fix and AGP's behaviour on a read-only SDK.
 - Gradle honouring `ANDROID_SERIAL`; `connectedAndroidTest` report paths and runner names.
 - `screenrecord` output under SwiftShader.
-- Two emulators at once through the scripts (`EMU_NAME`/`EMU_PORT`). The logic was read from
-  `flake.nix`, not run, and the same-AVD single-instance lock is unverified.
 - Booting with `-kernel`/`-ramdisk`, `-sysdir` precedence, and whether `kernel.parameters`
   appends to or replaces the cmdline. `-qemu -append` replacing the emulator's cmdline.
 - All kernel build steps (repo/Kleaf/legacy build.sh, outputs, disk usage, ci.android.com

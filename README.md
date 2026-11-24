@@ -23,7 +23,7 @@ From another flake, add this repo as an input and include
 Settings (environment variables):
 - `EMU_NAME` picks the AVD name. The default is `emu-35`.
 - `EMU_PORT` picks the console port, which sets the adb serial to `emulator-$EMU_PORT`.
-  The default is 5554. Use a different even port (5556, 5558, ...) to run a second AVD.
+  The default is 5554.
 - `EMU_BOOT_TIMEOUT` is how many seconds `emu-up` waits for boot. The default is 300.
 - AVDs are stored in `~/.android/avd`.
 - Logs and screenshots go to `~/.local/state/android-emu/`.
