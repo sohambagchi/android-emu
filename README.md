@@ -41,5 +41,5 @@ Behaviour:
 
 The flake sets `android_sdk.accept_license = true`, which accepts the Android SDK license.
 
-Further reading: [docs/DEV_GUIDE.md](docs/DEV_GUIDE.md) covers app development (Gradle, logcat, tests,
+Further reading: [DEV_GUIDE.md](DEV_GUIDE.md) covers app development (Gradle, logcat, tests,
 more AVDs and images) and kernel development (custom kernels, modules, gdb).
