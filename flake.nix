@@ -37,7 +37,7 @@
           includeNDK = false;
         }).androidsdk;
 
-      mkScripts = system:
+      mkEmu = system:
         let
           pkgs = mkPkgs system;
           sdk = mkSdk system;
@@ -143,18 +143,19 @@
             fi
             echo "$out"
           '';
+          inherit sdk;
         };
     in {
-      packages = forAll (system: (mkScripts system) // { sdk = mkSdk system; });
+      packages = forAll mkEmu;
 
       devShells = forAll (system:
         let
           pkgs = mkPkgs system;
-          sdk = mkSdk system;
-          sdkRoot = "${sdk}/libexec/android-sdk";
+          emu = mkEmu system;
+          sdkRoot = "${emu.sdk}/libexec/android-sdk";
         in {
           default = pkgs.mkShell {
-            packages = [ sdk ] ++ builtins.attrValues (mkScripts system);
+            packages = builtins.attrValues emu;
             ANDROID_HOME = sdkRoot;
             ANDROID_SDK_ROOT = sdkRoot;
           };
