@@ -9,11 +9,11 @@
       systems = [ "x86_64-linux" "aarch64-darwin" ];
       forAll = f: nixpkgs.lib.genAttrs systems (system: f system);
 
-      # Default device. The AVD name and console port can be overridden per
-      # invocation with EMU_NAME / EMU_PORT (see emu-up); the API level and image
-      # type are fixed here because the system image is part of the Nix build.
-      apiLevel = "35";
-      imageType = "google_apis";
+      # The default build ships one image. Other flakes call lib.mkEmu with more
+      # apiLevels; EMU_API then picks among them at run time, since an image must be
+      # in the Nix-built SDK before it can boot.
+      defaultApiLevels = [ "35" ];
+      defaultImageType = "google_apis";
 
       mkPkgs = system: import nixpkgs {
         inherit system;
@@ -25,10 +25,10 @@
 
       abiFor = system: if system == "aarch64-darwin" then "arm64-v8a" else "x86_64";
 
-      mkSdk = system:
+      mkSdk = { system, apiLevels, imageType }:
         let pkgs = mkPkgs system;
         in (pkgs.androidenv.composeAndroidPackages {
-          platformVersions = [ apiLevel ];
+          platformVersions = apiLevels;
           buildToolsVersions = [ "35.0.0" ];
           includeEmulator = true;
           includeSystemImages = true;
@@ -37,10 +37,10 @@
           includeNDK = false;
         }).androidsdk;
 
-      mkEmu = system:
+      mkEmu = { system, apiLevels ? defaultApiLevels, imageType ? defaultImageType }:
         let
           pkgs = mkPkgs system;
-          sdk = mkSdk system;
+          sdk = mkSdk { inherit system apiLevels imageType; };
           sdkRoot = "${sdk}/libexec/android-sdk";
           # Shared prelude. ANDROID_SERIAL pins every adb call in the scripts to this
           # emulator, so they keep working when a physical device is also attached.
@@ -48,7 +48,12 @@
             export ANDROID_HOME="${sdkRoot}"
             export ANDROID_SDK_ROOT="${sdkRoot}"
             export ANDROID_AVD_HOME="''${ANDROID_AVD_HOME:-$HOME/.android/avd}"
-            EMU_NAME="''${EMU_NAME:-emu-${apiLevel}}"
+            EMU_API="''${EMU_API:-${builtins.head apiLevels}}"
+            built_apis=(${builtins.concatStringsSep " " apiLevels})
+            if [[ " ''${built_apis[*]} " != *" $EMU_API "* ]]; then
+              echo "EMU_API=$EMU_API is not in this SDK (built with: ''${built_apis[*]})" >&2; exit 1
+            fi
+            EMU_NAME="''${EMU_NAME:-emu-$EMU_API}"
             EMU_PORT="''${EMU_PORT:-5554}"
             export ANDROID_SERIAL="emulator-$EMU_PORT"
             STATE_DIR="''${XDG_STATE_HOME:-$HOME/.local/state}/android-emu"
@@ -70,7 +75,7 @@
             if [[ ! -f "$ANDROID_AVD_HOME/$EMU_NAME.ini" ]]; then
               echo "Creating AVD $EMU_NAME"
               echo no | avdmanager create avd -n "$EMU_NAME" \
-                -k "system-images;android-${apiLevel};${imageType};${abiFor system}" \
+                -k "system-images;android-$EMU_API;${imageType};${abiFor system}" \
                 -d pixel_7 >/dev/null
               # Override avdmanager's defaults in place (the emulator takes the last
               # duplicate key, but keeping one copy keeps config.ini readable).
@@ -146,13 +151,17 @@
           inherit sdk;
         };
     in {
-      packages = forAll mkEmu;
+      # lib.mkEmu { system; apiLevels = [ "31" "35" ]; } -> { sdk, emu-up, emu-down, emu-shot }
+      lib = { inherit mkEmu; };
+
+      packages = forAll (system: mkEmu { inherit system; });
 
       devShells = forAll (system:
         let
           pkgs = mkPkgs system;
-          emu = mkEmu system;
-          sdkRoot = "${emu.sdk}/libexec/android-sdk";
+          emu = mkEmu { inherit system; };
+          sdk = emu.sdk;
+          sdkRoot = "${sdk}/libexec/android-sdk";
         in {
           default = pkgs.mkShell {
             packages = builtins.attrValues emu;

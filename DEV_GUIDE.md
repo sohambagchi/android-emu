@@ -19,7 +19,7 @@ platform-tools 37.0.1, cmdline-tools 23.0, build-tools 35.0.0, system image
 | Installed packages | `platforms;android-35`, `build-tools;35.0.0`, `emulator` 37.3.9, `platform-tools` 37.0.1, `cmdline-tools;23.0`, `cmake;4.1.2`, `system-images;android-35;google_apis;x86_64` |
 | AVDs | `~/.android/avd/<name>.avd` (default `emu-35`, Pixel 7 profile) |
 | Logs, screenshots | `~/.local/state/android-emu/` (`$EMU_NAME.log`, `shot-*.png`) |
-| Script settings | `EMU_NAME` (default `emu-35`), `EMU_PORT` (default `5554`, serial `emulator-$EMU_PORT`), `EMU_BOOT_TIMEOUT` (default 300 s) |
+| Script settings | `EMU_API` (default: first built level, 35), `EMU_NAME` (default `emu-$EMU_API`), `EMU_PORT` (default `5554`, serial `emulator-$EMU_PORT`), `EMU_BOOT_TIMEOUT` (default 300 s) |
 | Default launch flags (emu-up) | `-port $EMU_PORT -no-window -no-audio -no-boot-anim -no-metrics -no-snapshot -gpu swiftshader_indirect` |
 | AVD overrides (emu-up, on creation) | `hw.keyboard=yes`, `hw.ramSize=3072`, `disk.dataPartition.size=6G`, `hw.gpu.enabled=yes`, `hw.gpu.mode=swiftshader_indirect`; 4 vCPUs from the Pixel 7 profile |
 | Guest | Android 15, `userdebug`, `ro.debuggable=1`, `su` at `/system/xbin/su`, ABIs `x86_64,arm64-v8a` (ARM translation) |
@@ -223,9 +223,12 @@ x86_64 image types in the pinned `repo.json`:
 `sdkmanager --list` shows more (tablet, desktop, XR, TV variants); those are not all in `repo.json`.
 Each image is roughly a 1.6 GB download and 3.5 GB unpacked (API 35 `google_apis` x86_64).
 
-`emu-up` always creates AVDs from the flake's single `apiLevel`/`imageType`. It never overwrites an
-existing AVD, though, because it only creates one when `~/.android/avd/$EMU_NAME.ini` is missing. So
-create other images by hand, and `emu-up` will boot them by name:
+From another flake, `lib.mkEmu { inherit system; apiLevels = [ "35" "31" ]; imageType = "google_apis"; }`
+builds the SDK with those images, and `EMU_API=31 emu-up` creates and boots `emu-31`.
+
+`emu-up` creates AVDs from one `imageType`. It never overwrites an existing AVD, though, because it
+only creates one when `~/.android/avd/$EMU_NAME.ini` is missing. So create other image types by
+hand, and `emu-up` will boot them by name:
 
 ```sh
 echo no | avdmanager create avd -n play-35 \

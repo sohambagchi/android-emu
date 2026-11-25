@@ -19,9 +19,13 @@ You can also run a single script without entering the shell:
 
 From another flake, add this repo as an input and include
 `android-emu.packages.${system}.sdk` (or the `emu-*` scripts) in that project's dev shell.
+For other Android versions, use `android-emu.lib.mkEmu { inherit system; apiLevels = [ "35" "31" ]; }`,
+which returns `sdk`, `emu-up`, `emu-down` and `emu-shot` built with those images.
 
 Settings (environment variables):
-- `EMU_NAME` picks the AVD name. The default is `emu-35`.
+- `EMU_API` picks the system image's API level, from those the SDK was built with. The default
+  is the first one (35 for this flake's own packages).
+- `EMU_NAME` picks the AVD name. The default is `emu-$EMU_API`.
 - `EMU_PORT` picks the console port, which sets the adb serial to `emulator-$EMU_PORT`.
   The default is 5554.
 - `EMU_BOOT_TIMEOUT` is how many seconds `emu-up` waits for boot. The default is 300.
